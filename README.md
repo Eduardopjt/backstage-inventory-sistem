@@ -1,4 +1,4 @@
-# BACKSTAGE 📦
+﻿# BACKSTAGE 📦
 
 Sistema robusto e moderno para gerenciamento de inventário com interface intuitiva e funcionalidades avançadas.
 
@@ -112,7 +112,7 @@ http://127.0.0.1:5000
 ├── app.py                    # Aplicação Flask principal
 ├── inventory.db             # Banco de dados SQLite
 ├── requirements.txt         # Dependências Python
-├── README.md               # Este arquivo
+├── README.md                # Este arquivo
 ├── static/
 │   ├── css/
 │   │   └── style.css       # Estilos responsivos
