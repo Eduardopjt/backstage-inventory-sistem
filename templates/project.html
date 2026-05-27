@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="pt-br">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detalhes do Projeto - BACKSTAGE</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+  </head>
+  <body>
+    <main class="main-content" style="padding: 40px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:24px;flex-wrap:wrap;">
+        <div>
+          <h1 id="projectName">Carregando projeto...</h1>
+          <p id="projectStatus" style="color: var(--gray-600);"></p>
+        </div>
+        <div>
+          <button onclick="window.location.href='/'" class="btn-secondary">Voltar ao painel</button>
+        </div>
+      </div>
+
+      <section class="dashboard-section" style="margin-bottom:24px;">
+        <h2>Informações do Projeto</h2>
+        <div class="form-grid" style="gap: 24px; margin-top: 18px;">
+          <div>
+            <p><strong>Responsável:</strong> <span id="projectOwner">-</span></p>
+            <p><strong>Data de início:</strong> <span id="projectStartDate">-</span></p>
+            <p><strong>Data de término:</strong> <span id="projectDueDate">-</span></p>
+          </div>
+          <div>
+            <p><strong>Status:</strong> <span id="projectStatusBadge">-</span></p>
+            <p><strong>Descrição:</strong></p>
+            <p id="projectDescription" style="color: var(--gray-700);"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="dashboard-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;">
+          <h2>Tarefas do projeto</h2>
+        </div>
+        <div class="items-table" style="margin-top:16px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Status</th>
+                <th>Prioridade</th>
+                <th>Responsável</th>
+                <th>Vencimento</th>
+              </tr>
+            </thead>
+            <tbody id="projectTasksTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const projectId = {{ project_id }};
+
+      async function initProjectPage() {
+        try {
+          const [projectRes, tasksRes] = await Promise.all([
+            fetch(`/api/projects/${projectId}`),
+            fetch(`/api/projects/${projectId}/tasks`),
+          ]);
+
+          if (projectRes.status === 401 || tasksRes.status === 401) {
+            window.location.href = '/login';
+            return;
+          }
+
+          const project = await projectRes.json();
+          const tasks = await tasksRes.json();
+
+          if (project.error) {
+            document.getElementById('projectName').textContent = 'Projeto não encontrado';
+            return;
+          }
+
+          document.getElementById('projectName').textContent = project.name;
+          document.getElementById('projectStatus').textContent = project.description || '';
+          document.getElementById('projectOwner').textContent = project.owner_name || '-';
+          document.getElementById('projectStartDate').textContent = project.start_date || '-';
+          document.getElementById('projectDueDate').textContent = project.due_date || '-';
+          document.getElementById('projectDescription').textContent = project.description || '-';
+          document.getElementById('projectStatusBadge').textContent = project.status || '-';
+
+          const tbody = document.getElementById('projectTasksTableBody');
+          tbody.innerHTML = '';
+
+          if (!Array.isArray(tasks) || tasks.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="empty-row">Nenhuma tarefa cadastrada para este projeto.</td></tr>';
+            return;
+          }
+
+          tasks.forEach((task) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td>${task.name}</td>
+              <td>${task.status}</td>
+              <td>${task.priority}</td>
+              <td>${task.assigned_name || '-'}</td>
+              <td>${task.due_date || '-'}</td>
+            `;
+            tbody.appendChild(tr);
+          });
+        } catch (error) {
+          document.getElementById('projectName').textContent = 'Erro ao carregar o projeto';
+        }
+      }
+
+      initProjectPage();
+    </script>
+  </body>
+</html>
