@@ -54,6 +54,16 @@ python app.py
 http://127.0.0.1:5000
 ```
 
+## Banco de dados persistente
+
+O app salva os dados em `inventory.db` por padrão. Para manter os dados de forma permanente no Render ou em outra nuvem, configure um disco persistente e defina a variável de ambiente:
+
+```bash
+DATABASE_PATH=/data/inventory.db
+```
+
+Isso faz com que o SQLite use o arquivo no caminho configurado, permitindo dados persistentes entre deploys.
+
 ## Primeiros Passos
 
 1. **Registre uma nova conta** com empresa/equipe, usuário e senha (mín. 3 chars usuário, 6 chars senha)

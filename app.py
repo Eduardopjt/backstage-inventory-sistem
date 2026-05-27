@@ -9,7 +9,12 @@ from datetime import datetime, timedelta
 from functools import wraps
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, "inventory.db")
+DATABASE = os.environ.get("DATABASE_PATH") or os.path.join(BASE_DIR, "inventory.db")
+
+if DATABASE:
+    db_folder = os.path.dirname(DATABASE)
+    if db_folder and not os.path.exists(db_folder):
+        os.makedirs(db_folder, exist_ok=True)
 
 app = Flask(__name__)
 app.config["JSON_SORT_KEYS"] = False
