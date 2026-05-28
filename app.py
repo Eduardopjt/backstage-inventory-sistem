@@ -27,6 +27,12 @@ def login_required(f):
     def decorated_function(*args, **kwargs):
         if "user_id" not in session:
             return jsonify({"error": "Nao autenticado"}), 401
+
+        user = get_current_user()
+        if not user:
+            session.clear()
+            return jsonify({"error": "Nao autenticado"}), 401
+
         return f(*args, **kwargs)
     return decorated_function
 
@@ -105,6 +111,7 @@ def get_current_user():
     
     row = db.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     if not row:
+        session.clear()
         return None
     user = dict(row)
     
@@ -682,7 +689,8 @@ def get_user():
     
     # Validar se usuário e conta foram encontrados
     if not user:
-        return jsonify({"error": "Usuário ou conta não encontrado"}), 404
+        session.clear()
+        return jsonify({"error": "Nao autenticado"}), 401
     
     return jsonify({
         "id": user["id"],
