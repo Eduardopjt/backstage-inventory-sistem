@@ -927,6 +927,115 @@ body {
   gap: 16px;
 }
 
+.project-task-structure {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.project-task-sidebar {
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: 18px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.structure-header h3 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.structure-header p {
+  margin: 0;
+  color: var(--gray-600);
+  font-size: 0.95rem;
+}
+
+.project-section-list {
+  display: grid;
+  gap: 10px;
+}
+
+.section-button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border: 1px solid var(--gray-200);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: #fafbff;
+  color: var(--gray-900);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.section-button:hover,
+.section-button.active {
+  background: var(--primary);
+  color: white;
+  border-color: transparent;
+}
+
+.section-button small {
+  color: inherit;
+  opacity: 0.75;
+  font-size: 0.9rem;
+}
+
+.section-creator {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.section-creator input {
+  flex: 1;
+  border: 1px solid var(--gray-300);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.section-creator button {
+  white-space: nowrap;
+}
+
+.field-with-select {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.field-with-select select,
+.field-with-select input {
+  width: 100%;
+}
+
+@media (max-width: 1024px) {
+  .field-with-select {
+    grid-template-columns: 1fr;
+  }
+}
+
+.project-task-main {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.sector-row td {
+  background: #eff6ff;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+
 .summary-card {
   background: #fff;
   border: 1px solid var(--gray-200);
@@ -1253,6 +1362,10 @@ body {
   }
 
   .dashboard-charts {
+    grid-template-columns: 1fr;
+  }
+
+  .project-task-structure {
     grid-template-columns: 1fr;
   }
 

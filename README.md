@@ -56,13 +56,21 @@ http://127.0.0.1:5000
 
 ## Banco de dados persistente
 
-O app salva os dados em `inventory.db` por padrão. Para manter os dados de forma permanente no Render ou em outra nuvem, configure um disco persistente e defina a variável de ambiente:
+Por padrão o app salva os dados em `inventory.db`. Para uso em produção com Supabase ou outro PostgreSQL gerenciado, configure a variável de ambiente:
+
+```bash
+DATABASE_URL=postgres://<user>:<password>@<host>:<port>/<database>
+```
+
+No Supabase, copie a string de conexão do painel de `Settings > Database > Connection string` e cole em `DATABASE_URL` em vez de usar SQLite.
+
+Se você ainda quiser usar SQLite localmente ou em um ambiente com disco persistente, defina:
 
 ```bash
 DATABASE_PATH=/data/inventory.db
 ```
 
-Isso faz com que o SQLite use o arquivo no caminho configurado, permitindo dados persistentes entre deploys.
+O app detecta `DATABASE_URL` primeiro e usa PostgreSQL quando presente.
 
 ## Primeiros Passos
 

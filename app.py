@@ -8,13 +8,27 @@ from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 from functools import wraps
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.environ.get("DATABASE_PATH") or os.path.join(BASE_DIR, "inventory.db")
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:
+    psycopg = None
+    dict_row = None
 
-if DATABASE:
-    db_folder = os.path.dirname(DATABASE)
-    if db_folder and not os.path.exists(db_folder):
-        os.makedirs(db_folder, exist_ok=True)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE_URL = os.environ.get("DATABASE_URL")
+USE_POSTGRES = bool(DATABASE_URL)
+
+if USE_POSTGRES and psycopg is None:
+    raise ImportError("psycopg[binary] is required for DATABASE_URL / PostgreSQL support. Install it via requirements.txt.")
+
+DATABASE = None
+if not USE_POSTGRES:
+    DATABASE = os.environ.get("DATABASE_PATH") or os.path.join(BASE_DIR, "inventory.db")
+    if DATABASE:
+        db_folder = os.path.dirname(DATABASE)
+        if db_folder and not os.path.exists(db_folder):
+            os.makedirs(db_folder, exist_ok=True)
 
 app = Flask(__name__)
 app.config["JSON_SORT_KEYS"] = False
@@ -37,11 +51,49 @@ def login_required(f):
     return decorated_function
 
 
+def prepare_query(query):
+    if not USE_POSTGRES:
+        return query
+
+    if "INSERT OR IGNORE INTO" in query:
+        query = query.replace("INSERT OR IGNORE INTO", "INSERT INTO")
+        if "ON CONFLICT" not in query.upper():
+            query = query.rstrip("; ") + " ON CONFLICT DO NOTHING"
+    return query.replace("?", "%s")
+
+
+def adapt_sql(sql):
+    if not USE_POSTGRES:
+        return sql
+    return sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY").replace("DATETIME", "TIMESTAMP")
+
+
+class DatabaseConnection:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, query, params=()):
+        return self._conn.execute(prepare_query(adapt_sql(query)), params)
+
+    def commit(self):
+        return self._conn.commit()
+
+    def close(self):
+        return self._conn.close()
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
 def get_db():
     db = getattr(g, "db", None)
     if db is None:
-        db = g.db = sqlite3.connect(DATABASE)
-        db.row_factory = sqlite3.Row
+        if USE_POSTGRES:
+            conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+            db = g.db = DatabaseConnection(conn)
+        else:
+            db = g.db = sqlite3.connect(DATABASE)
+            db.row_factory = sqlite3.Row
     return db
 
 
@@ -646,11 +698,10 @@ def register():
         if existing:
             return jsonify({"error": "Usuário já existe"}), 400
 
-        db.execute(
-            "INSERT INTO accounts (name, plan) VALUES (?, ?)",
+        account_id = db.execute(
+            "INSERT INTO accounts (name, plan) VALUES (?, ?) RETURNING id",
             (company, plan),
-        )
-        account_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+        ).fetchone()["id"]
 
         db.execute(
             "INSERT INTO users (account_id, username, password, email, role, status, permissions) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -727,12 +778,11 @@ def items():
         if min_quantity < 0:
             return jsonify({"error": "Quantidade mínima não pode ser negativa."}), 400
 
-        db.execute(
-            "INSERT INTO items (account_id, user_id, name, description, quantity, location, min_quantity, category, sku) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        item_id = db.execute(
+            "INSERT INTO items (account_id, user_id, name, description, quantity, location, min_quantity, category, sku) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (account_id, user_id, name, description, quantity, location, min_quantity, category, sku),
-        )
+        ).fetchone()["id"]
         db.commit()
-        item_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
         item = db.execute("SELECT * FROM items WHERE id = ? AND account_id = ?", (item_id, account_id)).fetchone()
         return jsonify(dict(item)), 201
 
@@ -1265,12 +1315,10 @@ def projects():
         if not name:
             return jsonify({"error": "Nome do projeto é obrigatório."}), 400
 
-        db.execute(
-            "INSERT INTO projects (account_id, owner_id, name, description, status, start_date, due_date, assembly_start_date, assembly_end_date, event_start_date, event_end_date, dismantle_start_date, dismantle_end_date, assembly_address, event_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        project_id = db.execute(
+            "INSERT INTO projects (account_id, owner_id, name, description, status, start_date, due_date, assembly_start_date, assembly_end_date, event_start_date, event_end_date, dismantle_start_date, dismantle_end_date, assembly_address, event_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (account_id, session["user_id"], name, description, status, start_date, due_date, assembly_start, assembly_end, event_start, event_end, dismantle_start, dismantle_end, assembly_address, event_address),
-        )
-        db.commit()
-        project_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+        ).fetchone()["id"]
         db.execute(
             "INSERT OR IGNORE INTO project_access (project_id, user_id, access) VALUES (?, ?, ?)",
             (project_id, session["user_id"], "edit"),
@@ -1539,12 +1587,10 @@ def project_tasks(project_id):
         if not name:
             return jsonify({"error": "Nome da tarefa é obrigatório."}), 400
 
-        db.execute(
-            "INSERT INTO tasks (project_id, assigned_to, sector, name, description, status, priority, due_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        task_id = db.execute(
+            "INSERT INTO tasks (project_id, assigned_to, sector, name, description, status, priority, due_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id",
             (project_id, None if isinstance(assigned_to, list) else parse_int(assigned_to, None), data.get("sector"), name, description, status, priority, due_date),
-        )
-        db.commit()
-        task_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+        ).fetchone()["id"]
         # handle multiple assignees if provided
         if isinstance(assigned_to, list):
             # clear any existing
@@ -1636,11 +1682,10 @@ def project_requests(project_id):
         if not title:
             return jsonify({"error": "Título da solicitação é obrigatório."}), 400
 
-        db.execute(
-            "INSERT INTO project_requests (project_id, user_id, type, title, description, approver_id) VALUES (?, ?, ?, ?, ?, ?)",
+        request_id = db.execute(
+            "INSERT INTO project_requests (project_id, user_id, type, title, description, approver_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
             (project_id, session["user_id"], request_type, title, description, approver_id),
-        )
-        request_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+        ).fetchone()["id"]
 
         if request_type == "compra":
             db.execute(
@@ -1762,12 +1807,11 @@ def user_reminders():
         if not title:
             return jsonify({"error": "Título do lembrete é obrigatório."}), 400
 
-        db.execute(
-            "INSERT INTO user_reminders (user_id, title, note, due_date) VALUES (?, ?, ?, ?)",
+        reminder_id = db.execute(
+            "INSERT INTO user_reminders (user_id, title, note, due_date) VALUES (?, ?, ?, ?) RETURNING id",
             (user["id"], title, note, due_date),
-        )
+        ).fetchone()["id"]
         db.commit()
-        reminder_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
         reminder = db.execute("SELECT * FROM user_reminders WHERE id = ?", (reminder_id,)).fetchone()
         return jsonify(dict(reminder)), 201
 
@@ -2112,9 +2156,8 @@ def add_task_comment(task_id):
     ).fetchone()
     if not task or not has_project_access(current_user, task["project_id"]):
         return jsonify({"error": "Tarefa não encontrada."}), 404
-    db.execute("INSERT INTO task_comments (task_id, user_id, message) VALUES (?, ?, ?)", (task_id, current_user["id"], message))
+    comment_id = db.execute("INSERT INTO task_comments (task_id, user_id, message) VALUES (?, ?, ?) RETURNING id", (task_id, current_user["id"], message)).fetchone()["id"]
     db.commit()
-    comment_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
     comment = db.execute("SELECT c.*, u.username as author FROM task_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?", (comment_id,)).fetchone()
     return jsonify(dict(comment)), 201
 

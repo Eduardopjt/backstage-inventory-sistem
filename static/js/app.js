@@ -6,6 +6,7 @@ let allMovements = [];
 let allCategories = [];
 let allProjects = [];
 let selectedProjectId = null;
+let selectedProjectSection = null;
 let currentProjectAccessLevel = null;
 let allTasks = [];
 let projectChat = [];
@@ -223,6 +224,18 @@ function setupEventListeners() {
   document.getElementById("categoryFilter").addEventListener("change", loadItems);
   document.getElementById("projectSearchInput").addEventListener("input", loadProjects);
   document.getElementById("projectStatusFilter").addEventListener("change", loadProjects);
+  const createSectionBtn = document.getElementById("createProjectSectionBtn");
+  if (createSectionBtn) {
+    createSectionBtn.addEventListener("click", createProjectSection);
+  }
+  const taskSectorSelect = document.getElementById("taskSectorSelect");
+  if (taskSectorSelect) {
+    taskSectorSelect.addEventListener("change", () => {
+      const selected = taskSectorSelect.value;
+      const sectorInput = document.getElementById("taskSector");
+      if (sectorInput) sectorInput.value = selected;
+    });
+  }
   document.getElementById("dateStart").addEventListener("change", loadHistorico);
   document.getElementById("dateEnd").addEventListener("change", loadHistorico);
   document.getElementById("searchMovement").addEventListener("input", filterMovements);
@@ -915,6 +928,7 @@ async function selectProject(projectId) {
 async function loadProjectDetails(projectId) {
   if (!projectId) return false;
   selectedProjectId = projectId;
+  selectedProjectSection = null;
 
   const projectRes = await fetch(`/api/projects/${projectId}`);
   const project = await projectRes.json();
@@ -1208,9 +1222,10 @@ function renderTaskBoard() {
       }
     });
 
+    const filteredTasks = getFilteredTasks(allTasks);
     const tasks = status.key === "outros"
-      ? allTasks.filter((task) => !["planejamento", "pendente", "em progresso", "concluído"].includes(task.status))
-      : allTasks.filter((task) => task.status === status.key);
+      ? filteredTasks.filter((task) => !["planejamento", "pendente", "em progresso", "concluído"].includes(task.status))
+      : filteredTasks.filter((task) => task.status === status.key);
     if (!tasks.length) {
       const empty = document.createElement("div");
       empty.className = "small-note";
@@ -1983,8 +1998,36 @@ async function loadProjectTasks(projectId) {
   const res = await fetch(`/api/projects/${projectId}/tasks`);
   allTasks = await res.json();
   populateTaskFilterOptions(allTasks);
+  populateTaskSectorOptions(allTasks);
+  renderProjectSections();
   renderTasks();
   renderTaskBoard();
+}
+
+function populateTaskSectorOptions(tasks) {
+  const select = document.getElementById("taskSectorSelect");
+  if (!select) return;
+  const sectors = [...new Set(tasks.map((task) => task.sector || "Sem pasta"))].filter(Boolean).sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+  select.innerHTML = '<option value="">Selecionar pasta existente</option>' + sectors.map((sector) => `<option value="${sector}">${sector}</option>`).join("");
+}
+
+function createProjectSection() {
+  const input = document.getElementById("newProjectSectionName");
+  if (!input) return;
+  const sectionName = input.value.trim();
+  if (!sectionName) {
+    showMessage("Informe o nome da nova pasta.", "error");
+    return;
+  }
+  selectedProjectSection = sectionName;
+  input.value = "";
+  renderProjectSections();
+  renderTasks();
+  renderTaskBoard();
+  const sectorInput = document.getElementById("taskSector");
+  if (sectorInput) sectorInput.value = sectionName;
+  const sectorSelect = document.getElementById("taskSectorSelect");
+  if (sectorSelect) sectorSelect.value = sectionName;
 }
 
 function getFilteredTasks(tasks) {
@@ -1995,6 +2038,7 @@ function getFilteredTasks(tasks) {
   const endDate = document.getElementById("taskFilterEndDate").value;
 
   return tasks.filter((task) => {
+    if (selectedProjectSection && String(task.sector || "").toLowerCase() !== selectedProjectSection.toLowerCase()) return false;
     if (sector && String(task.sector || "").toLowerCase() !== sector.toLowerCase()) return false;
     if (priority && String(task.priority || "").toLowerCase() !== priority.toLowerCase()) return false;
     if (responsible) {
@@ -2031,6 +2075,45 @@ function populateTaskFilterOptions(tasks) {
   responsibleSelect.innerHTML = '<option value="">Todos os responsáveis</option>' + users.map((username) => `<option value="${username}">${username}</option>`).join("");
 }
 
+function renderProjectSections() {
+  const sidebar = document.getElementById("projectSectionList");
+  if (!sidebar) return;
+
+  const sectors = [...new Set(allTasks.map((task) => task.sector || "Sem pasta"))];
+  if (selectedProjectSection && !sectors.includes(selectedProjectSection)) {
+    sectors.push(selectedProjectSection);
+  }
+  sectors.sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+  sidebar.innerHTML = "";
+
+  const allButton = document.createElement("button");
+  allButton.type = "button";
+  allButton.className = `section-button ${selectedProjectSection ? "" : "active"}`;
+  allButton.textContent = `Todas as pastas (${allTasks.length})`;
+  allButton.addEventListener("click", () => {
+    selectedProjectSection = null;
+    renderProjectSections();
+    renderTasks();
+    renderTaskBoard();
+  });
+  sidebar.appendChild(allButton);
+
+  sectors.forEach((sector) => {
+    const sectorTasks = allTasks.filter((task) => (task.sector || "Sem pasta") === sector);
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `section-button ${selectedProjectSection === sector ? "active" : ""}`;
+    button.innerHTML = `<span>${sector}</span><small>${sectorTasks.length} tarefas</small>`;
+    button.addEventListener("click", () => {
+      selectedProjectSection = sector;
+      renderProjectSections();
+      renderTasks();
+      renderTaskBoard();
+    });
+    sidebar.appendChild(button);
+  });
+}
+
 function renderTasks() {
   const tbody = document.getElementById("tasksTableBody");
   const detailTbody = document.getElementById("detailTasksTableBody");
@@ -2046,23 +2129,38 @@ function renderTasks() {
 
   const filteredTasks = getFilteredTasks(allTasks);
   const canEditTasks = currentUser.role === "owner" || currentUser.role === "admin" || currentProjectAccessLevel === "edit";
-  filteredTasks.forEach((task) => {
-    const tr = document.createElement("tr");
-    const assignedNames = (task.assignees && task.assignees.length) ? task.assignees.map(a => a.username).join(', ') : (task.assigned_name || '-');
-    const actionButtons = `<div class="action-buttons"><button class="btn-sm btn-primary" onclick="openTaskWorkspace(${task.id})">Workspace</button>${canEditTasks ? `<button class="btn-sm btn-edit" onclick="editTask(${task.id})">Editar</button><button class="btn-sm btn-delete" onclick="deleteTask(${task.id})">Del</button>` : ""}</div>`;
-    tr.innerHTML = `
-      <td>${task.name}</td>
-      <td>${task.status}</td>
-      <td>${task.priority}</td>
-      <td>${assignedNames}</td>
-      <td>${task.due_date || "-"}</td>
-      <td>${actionButtons}</td>
-    `;
-    if (tbody) tbody.appendChild(tr);
-    if (detailTbody) {
-      const clone = tr.cloneNode(true);
-      detailTbody.appendChild(clone);
-    }
+  const tasksBySector = filteredTasks.reduce((groups, task) => {
+    const sector = task.sector || "Sem pasta";
+    if (!groups[sector]) groups[sector] = [];
+    groups[sector].push(task);
+    return groups;
+  }, {});
+
+  Object.keys(tasksBySector).sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" })).forEach((sector) => {
+    const headerRow = document.createElement("tr");
+    headerRow.className = "sector-row";
+    headerRow.innerHTML = `<td colspan="6"><strong>${sector}</strong> — ${tasksBySector[sector].length} tarefa(s)</td>`;
+    if (tbody) tbody.appendChild(headerRow);
+    if (detailTbody) detailTbody.appendChild(headerRow.cloneNode(true));
+
+    tasksBySector[sector].forEach((task) => {
+      const tr = document.createElement("tr");
+      const assignedNames = (task.assignees && task.assignees.length) ? task.assignees.map(a => a.username).join(', ') : (task.assigned_name || '-');
+      const actionButtons = `<div class="action-buttons"><button class="btn-sm btn-primary" onclick="openTaskWorkspace(${task.id})">Workspace</button>${canEditTasks ? `<button class="btn-sm btn-edit" onclick="editTask(${task.id})">Editar</button><button class="btn-sm btn-delete" onclick="deleteTask(${task.id})">Del</button>` : ""}</div>`;
+      tr.innerHTML = `
+        <td>${task.name}</td>
+        <td>${task.status}</td>
+        <td>${task.priority}</td>
+        <td>${assignedNames}</td>
+        <td>${task.due_date || "-"}</td>
+        <td>${actionButtons}</td>
+      `;
+      if (tbody) tbody.appendChild(tr);
+      if (detailTbody) {
+        const clone = tr.cloneNode(true);
+        detailTbody.appendChild(clone);
+      }
+    });
   });
 }
 
@@ -2081,6 +2179,10 @@ async function openTaskModal(taskId = null) {
   document.getElementById("taskProjectId").value = selectedProjectId;
   document.getElementById("taskAssignee").innerHTML = '<option value="">Sem responsável</option>';
   document.getElementById("taskSector").value = "";
+  const sectorSelect = document.getElementById("taskSectorSelect");
+  if (sectorSelect) {
+    sectorSelect.value = "";
+  }
   allTeamMembers.forEach((member) => {
     const opt = document.createElement("option");
     opt.value = member.id;
@@ -2098,6 +2200,9 @@ async function openTaskModal(taskId = null) {
       document.getElementById("taskStatus").value = task.status || "pendente";
       document.getElementById("taskPriority").value = task.priority || "média";
       document.getElementById("taskSector").value = task.sector || "";
+      if (sectorSelect) {
+        sectorSelect.value = task.sector || "";
+      }
       document.getElementById("taskDueDate").value = task.due_date || "";
       if (task.assignees && task.assignees.length) {
         const sel = document.getElementById("taskAssignee");
@@ -2120,12 +2225,14 @@ async function saveTask(e) {
   const assignedTo = Array.from(document.getElementById("taskAssignee").selectedOptions)
     .map((opt) => parseInt(opt.value, 10))
     .filter((id) => !Number.isNaN(id));
+  const sectorValue = document.getElementById("taskSector").value.trim();
+  const sectorSelectValue = document.getElementById("taskSectorSelect").value;
   const data = {
     name: document.getElementById("taskName").value.trim(),
     description: document.getElementById("taskDescription").value.trim(),
     status: document.getElementById("taskStatus").value,
     priority: document.getElementById("taskPriority").value,
-    sector: document.getElementById("taskSector").value.trim() || null,
+    sector: sectorValue || sectorSelectValue || null,
     assigned_to: assignedTo.length ? assignedTo : null,
     due_date: document.getElementById("taskDueDate").value || null,
   };
