@@ -63,18 +63,44 @@ class DBConnection:
     def __init__(self, connection, driver):
         self.conn = connection
         self.driver = driver
+        self.current_cursor = None
 
     def execute(self, sql, params=()):
         if self.driver == "postgres":
-            cursor = self.conn.cursor(cursor_factory=RealDictCursor)
-            cursor.execute(sql.replace("?", "%s"), params)
-            return cursor
-        return self.conn.execute(sql, params)
+            self.current_cursor = self.conn.cursor(cursor_factory=RealDictCursor)
+            self.current_cursor.execute(sql.replace("?", "%s"), params)
+            return self
+        else:
+            self.current_cursor = self.conn.execute(sql, params)
+            return self
+
+    def fetchone(self):
+        if self.current_cursor is None:
+            return None
+        try:
+            result = self.current_cursor.fetchone()
+            return result
+        except:
+            return None
+
+    def fetchall(self):
+        if self.current_cursor is None:
+            return []
+        try:
+            results = self.current_cursor.fetchall()
+            return results
+        except:
+            return []
 
     def commit(self):
         return self.conn.commit()
 
     def close(self):
+        if self.current_cursor:
+            try:
+                self.current_cursor.close()
+            except:
+                pass
         return self.conn.close()
 
 
