@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: controle-de-estoque-web-app
+    env: python
+    plan: starter
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: SECRET_KEY
+        value: "CHANGE_THIS_SECRET_KEY"
+      - key: DATABASE_URL
+        value: "postgresql://USER:PASSWORD@HOST:PORT/DATABASE"

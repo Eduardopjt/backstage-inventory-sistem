@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="pt-br">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BACKSTAGE - Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <div class="sidebar">
+      <div class="sidebar-header">
+        <h1>📦 BACKSTAGE</h1>
+        <div class="user-info" id="userInfo"></div>
+      </div>
+      <nav class="sidebar-nav">
+        <button class="nav-btn active" data-page="dashboard">📊 Dashboard</button>
+        <button class="nav-btn" data-page="items">📋 Inventário</button>
+        <button class="nav-btn" data-page="historico">📜 Histórico</button>
+        <button class="nav-btn" data-page="relatorios">📈 Relatórios</button>
+        <button class="nav-btn" data-page="configuracoes">⚙️ Configurações</button>
+      </nav>
+      <div class="sidebar-footer">
+        <button id="logoutBtn" class="logout-btn">🚪 Sair</button>
+      </div>
+    </div>
+
+    <main class="main-content">
+      <div id="appMessage" class="app-message hidden"></div>
+      <!-- Dashboard -->
+      <section id="dashboard-page" class="page active">
+        <header class="page-header">
+          <h2>Dashboard</h2>
+          <p>Resumo geral do seu estoque</p>
+        </header>
+
+        <div class="kpi-cards">
+          <div class="kpi-card">
+            <div class="kpi-icon">📦</div>
+            <div class="kpi-content">
+              <div class="kpi-label">Total SKUs</div>
+              <div class="kpi-value" id="kpi-items">0</div>
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon">📊</div>
+            <div class="kpi-content">
+              <div class="kpi-label">Quantidade Total</div>
+              <div class="kpi-value" id="kpi-quantity">0</div>
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon">⚠️</div>
+            <div class="kpi-content">
+              <div class="kpi-label">Estoque Baixo</div>
+              <div class="kpi-value alert-value" id="kpi-low">0</div>
+            </div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon">💰</div>
+            <div class="kpi-content">
+              <div class="kpi-label">Valor em Estoque</div>
+              <div class="kpi-value" id="kpi-value">R$ 0,00</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="dashboard-charts">
+          <div class="chart-container">
+            <h3>Estoque por Localização</h3>
+            <canvas id="locChart"></canvas>
+          </div>
+          <div class="chart-container">
+            <h3>Tipos de Movimentação</h3>
+            <canvas id="typeChart"></canvas>
+          </div>
+        </div>
+
+        <div class="dashboard-section">
+          <h3>Itens com Estoque Baixo</h3>
+          <div id="lowStockList" class="low-stock-list"></div>
+        </div>
+      </section>
+
+      <!-- Inventário -->
+      <section id="items-page" class="page">
+        <header class="page-header">
+          <h2>Inventário</h2>
+          <button id="addItemBtn" class="btn-primary">+ Novo Item</button>
+        </header>
+
+        <div id="planWarning" class="plan-warning hidden"></div>
+
+        <div class="search-filters">
+          <input type="text" id="searchInput" placeholder="🔍 Pesquisar por nome, SKU...">
+          <select id="categoryFilter">
+            <option value="">Todas as categorias</option>
+          </select>
+        </div>
+
+        <div id="itemsTable" class="items-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>SKU</th>
+                <th>Categoria</th>
+                <th>Qtd</th>
+                <th>Min</th>
+                <th>Local</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="itemsTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Histórico -->
+      <section id="historico-page" class="page">
+        <header class="page-header">
+          <h2>Histórico de Movimentações</h2>
+        </header>
+
+        <div class="search-filters">
+          <input type="date" id="dateStart" placeholder="Data início">
+          <input type="date" id="dateEnd" placeholder="Data fim">
+          <select id="movementTypeFilter">
+            <option value="">Todos os tipos</option>
+            <option value="ENTRADA">Entrada</option>
+            <option value="SAIDA">Saída</option>
+            <option value="AJUSTE">Ajuste</option>
+          </select>
+          <input type="text" id="searchMovement" placeholder="🔍 Pesquisar movimentação...">
+        </div>
+
+        <table id="movementTable" class="items-table">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Item</th>
+              <th>Tipo</th>
+              <th>Quantidade</th>
+              <th>Fornecedor/Destino</th>
+              <th>Observação</th>
+            </tr>
+          </thead>
+          <tbody id="movementTableBody"></tbody>
+        </table>
+      </section>
+
+      <!-- Relatórios -->
+      <section id="relatorios-page" class="page">
+        <header class="page-header">
+          <h2>Relatórios</h2>
+        </header>
+
+        <div class="reports-container">
+          <div class="report-card">
+            <h3>Relatório por Fornecedor</h3>
+            <p>Analise as entradas por fornecedor e custos</p>
+            <button id="reportSupplierBtn" class="btn-secondary">Gerar Relatório</button>
+          </div>
+          <div class="report-card">
+            <h3>Relatório por Localização</h3>
+            <p>Saiba quanto está estocado em cada local</p>
+            <button id="reportLocationBtn" class="btn-secondary">Gerar Relatório</button>
+          </div>
+          <div class="report-card">
+            <h3>Exportar Dados</h3>
+            <p>Exporte seus dados em CSV ou PDF</p>
+            <div class="export-buttons">
+              <button id="exportCSVBtn" class="btn-secondary">CSV</button>
+              <button id="exportPDFBtn" class="btn-secondary">PDF</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="reportContent"></div>
+      </section>
+
+      <!-- Configurações -->
+      <section id="configuracoes-page" class="page">
+        <header class="page-header">
+          <h2>Configurações</h2>
+        </header>
+
+        <div class="config-section">
+          <h3>Categorias</h3>
+          <div class="category-form">
+            <input type="text" id="newCategoryName" placeholder="Nome da categoria">
+            <input type="color" id="newCategoryColor" value="#2563eb">
+            <button id="addCategoryBtn" class="btn-primary">Adicionar</button>
+          </div>
+          <div id="categoriesList" class="categories-list"></div>
+        </div>
+
+        <div class="config-section">
+          <h3>Conta</h3>
+          <p>Empresa: <strong id="currentAccount"></strong></p>
+          <p>Usuário: <strong id="currentUsername"></strong></p>
+          <p>Plano: <strong id="currentPlan"></strong></p>
+          <div id="planLimitInfo" class="plan-info"></div>
+          <button id="upgradePlanBtn" class="btn-primary">Fazer upgrade para PRO</button>
+          <button id="changePasswordBtn" class="btn-secondary">Alterar Senha</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Modal para mudar senha -->
+    <div id="changePasswordModal" class="modal hidden">
+      <div class="modal-content">
+        <span class="modal-close">&times;</span>
+        <h2>Alterar Senha</h2>
+        <form id="changePasswordForm">
+          <div class="form-group">
+            <label>Senha Atual *</label>
+            <input type="password" id="currentPassword" required>
+          </div>
+          <div class="form-group">
+            <label>Nova Senha *</label>
+            <input type="password" id="newPassword" required>
+          </div>
+          <div class="form-group">
+            <label>Confirmar Nova Senha *</label>
+            <input type="password" id="confirmPassword" required>
+          </div>
+          <button type="submit" class="btn-primary">Alterar</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal para novo item -->
+    <div id="itemModal" class="modal hidden">
+      <div class="modal-content">
+        <span class="modal-close">&times;</span>
+        <h2 id="itemModalTitle">Novo Item</h2>
+        <form id="itemForm">
+          <input type="hidden" id="itemId">
+          <div class="form-group">
+            <label>Nome *</label>
+            <input type="text" id="itemName" required>
+          </div>
+          <div class="form-group">
+            <label>SKU</label>
+            <input type="text" id="itemSKU">
+          </div>
+          <div class="form-group">
+            <label>Categoria</label>
+            <select id="itemCategory"></select>
+          </div>
+          <div class="form-group">
+            <label>Descrição</label>
+            <textarea id="itemDescription"></textarea>
+          </div>
+          <div class="form-group">
+            <label id="itemQuantityLabel">Quantidade</label>
+            <input type="number" id="itemQuantity" min="0" value="0">
+            <small id="itemQuantityNote" class="hidden">Quantidade atual só pode ser ajustada via Entrada/Saída/Ajuste.</small>
+          </div>
+          <div class="form-group">
+            <label>Quantidade Mínima</label>
+            <input type="number" id="itemMinQuantity" min="0" value="0">
+          </div>
+          <div class="form-group">
+            <label>Localização</label>
+            <select id="itemLocation"></select>
+          </div>
+          <button type="submit" class="btn-primary">Salvar</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Modal para movimentação -->
+    <div id="movementModal" class="modal hidden">
+      <div class="modal-content">
+        <span class="modal-close">&times;</span>
+        <h2 id="movementTitle">Entrada</h2>
+        <form id="movementForm">
+          <input type="hidden" id="movementItemId">
+          <input type="hidden" id="movementType">
+          <div class="form-group">
+            <label>Quantidade *</label>
+            <input type="number" id="movementQuantity" min="1" required>
+          </div>
+          <div id="supplierGroup" class="form-group" style="display:none;">
+            <label>Fornecedor</label>
+            <input type="text" id="movementSupplier">
+          </div>
+          <div id="priceGroup" class="form-group" style="display:none;">
+            <label>Valor Unitário</label>
+            <input type="number" id="movementPrice" step="0.01" min="0">
+          </div>
+          <div id="destinationGroup" class="form-group" style="display:none;">
+            <label>Destino *</label>
+            <input type="text" id="movementDestination">
+          </div>
+          <div class="form-group">
+            <label>Observação</label>
+            <textarea id="movementObservation"></textarea>
+          </div>
+          <button type="submit" class="btn-primary">Confirmar</button>
+        </form>
+      </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+  </body>
+</html>
