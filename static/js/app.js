@@ -78,7 +78,10 @@ function setupEventListeners() {
     window.location.href = "/logout";
   });
 
-  document.getElementById("upgradePlanBtn").addEventListener("click", upgradePlan);
+  document.getElementById("upgradePlanBtn").addEventListener("click", startCheckout);
+  document.getElementById("checkoutBtn").addEventListener("click", startCheckout);
+  document.getElementById("sendInviteBtn").addEventListener("click", sendInvite);
+  document.getElementById("importExcelBtn").addEventListener("click", importExcel);
 
   // Event listeners para páginas
   document.getElementById("addItemBtn").addEventListener("click", () => openItemModal());
@@ -131,6 +134,9 @@ function changePage(page, e) {
       break;
     case "dashboard":
       loadDashboard();
+      break;
+    case "equipe":
+      loadInvites();
       break;
   }
 }
@@ -209,6 +215,118 @@ async function updateCharts(movementTypes = {}) {
     },
     options: { responsive: true, maintainAspectRatio: false },
   });
+}
+
+async function loadInvites() {
+  const res = await fetch("/api/invites");
+  if (!res.ok) {
+    showMessage("Não foi possível carregar os convites.", "error");
+    return;
+  }
+  const invites = await res.json();
+  renderInvites(invites);
+}
+
+function renderInvites(invites) {
+  const container = document.getElementById("inviteList");
+  if (!container) return;
+  if (!Array.isArray(invites) || invites.length === 0) {
+    container.innerHTML = "<p>Nenhum convite enviado ainda.</p>";
+    return;
+  }
+
+  let html = "<table class='items-table'><thead><tr><th>Email</th><th>Função</th><th>Status</th><th>Expira em</th></tr></thead><tbody>";
+  invites.forEach((invite) => {
+    html += `<tr><td>${invite.email}</td><td>${invite.role}</td><td>${invite.status}</td><td>${invite.expires_at || '-'}</td></tr>`;
+  });
+  html += "</tbody></table>";
+  container.innerHTML = html;
+}
+
+async function sendInvite() {
+  const email = document.getElementById("inviteEmail").value.trim();
+  const role = document.getElementById("inviteRole").value;
+  const inviteMessage = document.getElementById("inviteMessage");
+  inviteMessage.style.display = "none";
+
+  if (!email) {
+    showMessage("Digite um email válido para enviar o convite.", "error");
+    return;
+  }
+
+  try {
+    const res = await fetch("/api/invites", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, role }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showMessage(data.error || "Erro ao enviar convite.", "error");
+      return;
+    }
+    document.getElementById("inviteEmail").value = "";
+    inviteMessage.textContent = "Convite enviado com sucesso!";
+    inviteMessage.style.display = "block";
+    loadInvites();
+  } catch (error) {
+    showMessage("Falha ao enviar convite.", "error");
+  }
+}
+
+async function importExcel() {
+  const fileInput = document.getElementById("excelFile");
+  const resultEl = document.getElementById("excelResult");
+  resultEl.style.display = "none";
+
+  if (!fileInput.files.length) {
+    showMessage("Selecione um arquivo Excel para importar.", "error");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("file", fileInput.files[0]);
+
+  try {
+    const res = await fetch("/api/import/excel", {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showMessage(data.error || "Erro ao importar Excel.", "error");
+      return;
+    }
+    resultEl.innerHTML = `Importados: <strong>${data.created}</strong> itens.`;
+    if (data.errors.length) {
+      resultEl.innerHTML += `<br>Erros: ${data.errors.length}. Ver console para detalhes.`;
+      console.warn("Erros de importação:", data.errors);
+    }
+    resultEl.style.display = "block";
+    fileInput.value = "";
+    await loadItems();
+    await loadDashboard();
+  } catch (error) {
+    showMessage("Falha ao importar Excel.", "error");
+  }
+}
+
+async function startCheckout() {
+  try {
+    const res = await fetch("/api/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan: "pro", success_url: window.location.href, cancel_url: window.location.href }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.checkout_url) {
+      showMessage(data.error || "Não foi possível iniciar o pagamento.", "error");
+      return;
+    }
+    window.location.href = data.checkout_url;
+  } catch (error) {
+    showMessage("Erro ao iniciar checkout Stripe.", "error");
+  }
 }
 
 // ==================== ITENS ====================

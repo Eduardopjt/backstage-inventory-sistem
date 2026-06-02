@@ -2,7 +2,11 @@ from flask import Flask, render_template, request, jsonify, g, session, redirect
 from werkzeug.security import generate_password_hash, check_password_hash
 import sqlite3
 import os
-from datetime import datetime
+import io
+import secrets
+import smtplib
+from email.message import EmailMessage
+from datetime import datetime, timedelta
 from functools import wraps
 
 try:
@@ -11,10 +15,34 @@ try:
 except ImportError:
     psycopg2 = None
 
+try:
+    import stripe
+except ImportError:
+    stripe = None
+
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.path.join(BASE_DIR, "inventory.db")
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 USE_POSTGRES = bool(DATABASE_URL and (DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://")))
+
+STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "").strip()
+STRIPE_PRICE_PRO_ID = os.environ.get("STRIPE_PRICE_PRO_ID", "").strip()
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+EMAIL_PROVIDER = os.environ.get("EMAIL_PROVIDER", "smtp").strip().lower()
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "noreply@example.com").strip()
+SMTP_HOST = os.environ.get("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
+SMTP_USER = os.environ.get("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "").strip()
+INVITE_EXPIRATION_DAYS = int(os.environ.get("INVITE_EXPIRATION_DAYS", 7))
+
+if stripe is not None and STRIPE_API_KEY:
+    stripe.api_key = STRIPE_API_KEY
 
 app = Flask(__name__)
 app.config["JSON_SORT_KEYS"] = False
@@ -72,6 +100,60 @@ def parse_int(value, default=0):
         return default
 
 
+def generate_token(length=32):
+    return secrets.token_urlsafe(length)
+
+
+def send_email(to_email, subject, html_content):
+    if not to_email:
+        return False
+
+    # Se email não está configurado, apenas retorna True sem enviar
+    if EMAIL_PROVIDER == "smtp" and not SMTP_HOST:
+        print(f"[EMAIL] Simulado: {to_email} - {subject}")
+        return True
+    
+    if EMAIL_PROVIDER == "sendgrid" and not os.environ.get("SENDGRID_API_KEY"):
+        print(f"[EMAIL] Simulado: {to_email} - {subject}")
+        return True
+
+    try:
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = EMAIL_FROM
+        msg["To"] = to_email
+        msg.set_content(html_content, subtype="html")
+
+        if EMAIL_PROVIDER == "sendgrid":
+            from sendgrid import SendGridAPIClient
+            from sendgrid.helpers.mail import Mail
+            message = Mail(from_email=EMAIL_FROM, to_emails=to_email, subject=subject, html_content=html_content)
+            client = SendGridAPIClient(os.environ.get("SENDGRID_API_KEY", ""))
+            client.send(message)
+            return True
+
+        if SMTP_HOST:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+                server.starttls()
+                if SMTP_USER and SMTP_PASSWORD:
+                    server.login(SMTP_USER, SMTP_PASSWORD)
+                server.send_message(msg)
+            return True
+        
+        return True
+    except Exception as e:
+        print(f"[EMAIL ERROR] {e}")
+        return True
+
+
+def get_current_user():
+    if "user_id" not in session:
+        return None
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE id = ?", (session["user_id"],)).fetchone()
+    return user
+
+
 def get_plan_limits(plan):
     if plan == "pro":
         return {"max_items": None, "max_categories": None}
@@ -109,6 +191,37 @@ def init_db():
             password TEXT NOT NULL,
             email TEXT,
             role TEXT NOT NULL DEFAULT 'owner',
+            created_at {timestamp_type},
+            FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+        )
+        """
+    )
+    db.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS invites (
+            id {serial_type},
+            account_id INTEGER NOT NULL,
+            email TEXT NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            role TEXT NOT NULL DEFAULT 'member',
+            status TEXT NOT NULL DEFAULT 'pending',
+            expires_at TIMESTAMP,
+            created_at {timestamp_type},
+            invited_by INTEGER,
+            FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+            FOREIGN KEY(invited_by) REFERENCES users(id) ON DELETE SET NULL
+        )
+        """
+    )
+    db.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id {serial_type},
+            account_id INTEGER NOT NULL,
+            stripe_subscription_id TEXT UNIQUE,
+            stripe_price_id TEXT,
+            status TEXT NOT NULL DEFAULT 'inactive',
+            current_period_end TIMESTAMP,
             created_at {timestamp_type},
             FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
         )
@@ -272,6 +385,7 @@ def register():
         email = data.get("email", "").strip()
         company = data.get("company", "").strip() or username
         plan = data.get("plan", "free").strip() or "free"
+        invite_token = data.get("invite_token", "").strip()
 
         if not username or not password:
             return jsonify({"error": "Usuário e senha obrigatórios"}), 400
@@ -281,7 +395,7 @@ def register():
             return jsonify({"error": "Senha deve ter pelo menos 6 caracteres"}), 400
         if password != password_confirm:
             return jsonify({"error": "Senhas não conferem"}), 400
-        if not company:
+        if not invite_token and not company:
             return jsonify({"error": "Nome da empresa/equipe é obrigatório"}), 400
 
         db = get_db()
@@ -289,29 +403,51 @@ def register():
         if existing:
             return jsonify({"error": "Usuário já existe"}), 400
 
-        if USE_POSTGRES:
-            account_cursor = db.execute(
-                "INSERT INTO accounts (name, plan) VALUES (?, ?) RETURNING id",
-                (company, plan),
+        if invite_token:
+            invite = db.execute(
+                "SELECT * FROM invites WHERE token = ? AND status = 'pending' AND expires_at > ?",
+                (invite_token, datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),),
+            ).fetchone()
+            if not invite:
+                return jsonify({"error": "Token de convite inválido ou expirado."}), 400
+            account_id = invite["account_id"]
+            role = invite["role"] or "member"
+            db.execute(
+                "UPDATE invites SET status = 'accepted' WHERE id = ?",
+                (invite["id"],),
             )
-            account_id = account_cursor.fetchone()["id"]
         else:
-            account_cursor = db.execute(
-                "INSERT INTO accounts (name, plan) VALUES (?, ?)",
-                (company, plan),
-            )
-            account_id = account_cursor.lastrowid
+            role = "owner"
+            if USE_POSTGRES:
+                account_cursor = db.execute(
+                    "INSERT INTO accounts (name, plan) VALUES (?, ?) RETURNING id",
+                    (company, plan),
+                )
+                account_id = account_cursor.fetchone()["id"]
+            else:
+                account_cursor = db.execute(
+                    "INSERT INTO accounts (name, plan) VALUES (?, ?)",
+                    (company, plan),
+                )
+                account_id = account_cursor.lastrowid
 
         db.execute(
             "INSERT INTO users (account_id, username, password, email, role) VALUES (?, ?, ?, ?, ?)",
-            (account_id, username, generate_password_hash(password), email, "owner"),
+            (account_id, username, generate_password_hash(password), email, role),
         )
         db.commit()
         return jsonify({"success": True})
 
     if "user_id" in session:
         return redirect(url_for("index"))
-    return render_template("register.html")
+
+    invite_token = request.args.get("invite_token", "")
+    return render_template("register.html", invite_token=invite_token)
+
+
+@app.route("/invite/<token>")
+def invite_accept(token):
+    return render_template("register.html", invite_token=token)
 
 
 @app.route("/logout")
@@ -357,6 +493,159 @@ def account_info():
         "category_count": category_count,
         "limits": limits,
     })
+
+
+@app.route("/api/invites", methods=["GET", "POST"])
+@login_required
+def invites():
+    db = get_db()
+    user = get_current_user()
+    if user is None or user["role"] != "owner":
+        return jsonify({"error": "Apenas proprietários podem criar convites."}), 403
+
+    account_id = user["account_id"]
+    if request.method == "POST":
+        data = request.get_json() or {}
+        email = data.get("email", "").strip().lower()
+        role = data.get("role", "member").strip().lower()
+
+        if not email:
+            return jsonify({"error": "Email do convidado é obrigatório."}), 400
+
+        token = generate_token(24)
+        expires_at = (datetime.utcnow() + timedelta(days=INVITE_EXPIRATION_DAYS)).strftime("%Y-%m-%d %H:%M:%S")
+        db.execute(
+            "INSERT INTO invites (account_id, email, token, role, status, expires_at, invited_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (account_id, email, token, role, "pending", expires_at, user["id"]),
+        )
+        db.commit()
+
+        invite_url = url_for("register", _external=True) + f"?invite_token={token}"
+        html = f"<p>Você foi convidado para acessar o workspace <strong>{user['username']}</strong>.</p><p><a href=\"{invite_url}\">Clique aqui para aceitar o convite</a></p>"
+        try:
+            send_email(email, "Convite para acessar o workspace", html)
+        except Exception as e:
+            return jsonify({"error": f"Não foi possível enviar o convite: {e}"}), 500
+
+        return jsonify({"success": True, "invite_url": invite_url})
+
+    rows = db.execute("SELECT * FROM invites WHERE account_id = ? ORDER BY created_at DESC", (account_id,)).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/import/excel", methods=["POST"])
+@login_required
+def import_excel():
+    if pd is None:
+        return jsonify({"error": "Pandas e openpyxl são necessários para importar Excel."}), 500
+
+    uploaded_file = request.files.get("file")
+    if not uploaded_file or uploaded_file.filename == "":
+        return jsonify({"error": "Arquivo Excel não enviado."}), 400
+
+    try:
+        df = pd.read_excel(uploaded_file, engine="openpyxl")
+    except Exception as exc:
+        return jsonify({"error": f"Falha ao ler o arquivo Excel: {exc}"}), 400
+
+    required_columns = ["name", "quantity"]
+    if not all(col in df.columns for col in required_columns):
+        return jsonify({"error": f"O arquivo deve conter as colunas: {', '.join(required_columns)}."}), 400
+
+    db = get_db()
+    account_id = session["account_id"]
+    user_id = session["user_id"]
+    created = 0
+    errors = []
+
+    for index, row in df.iterrows():
+        try:
+            name = str(row.get("name", "")).strip()
+            quantity = parse_int(row.get("quantity", 0), 0)
+            description = str(row.get("description", "")).strip()
+            location = str(row.get("location", "")).strip()
+            min_quantity = parse_int(row.get("min_quantity", 0), 0)
+            category = str(row.get("category", "")).strip()
+            sku = str(row.get("sku", "")).strip()
+
+            if not name:
+                raise ValueError("Nome do item obrigatório")
+
+            db.execute(
+                "INSERT INTO items (account_id, user_id, name, description, quantity, location, min_quantity, category, sku) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (account_id, user_id, name, description, quantity, location, min_quantity, category, sku),
+            )
+            created += 1
+        except Exception as exc:
+            errors.append({"row": int(index) + 1, "error": str(exc)})
+
+    db.commit()
+    return jsonify({"success": True, "created": created, "errors": errors})
+
+
+@app.route("/api/checkout", methods=["POST"])
+@login_required
+def create_checkout():
+    if stripe is None or not STRIPE_API_KEY:
+        return jsonify({"error": "Stripe não está configurado. Atualize seu plano manualmente depois."}), 400
+    if not STRIPE_PRICE_PRO_ID:
+        return jsonify({"error": "STRIPE_PRICE_PRO_ID não definido."}), 400
+
+    data = request.get_json() or {}
+    plan = data.get("plan", "pro").strip().lower()
+    account_id = session["account_id"]
+    success_url = data.get("success_url", request.host_url)
+    cancel_url = data.get("cancel_url", request.host_url)
+
+    user = get_current_user()
+    if not user or not user.get("email"):
+        return jsonify({"error": "Email do usuário não cadastrado. Atualize seu perfil antes de continuar."}), 400
+
+    try:
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            mode="subscription",
+            line_items=[{"price": STRIPE_PRICE_PRO_ID, "quantity": 1}],
+            customer_email=user["email"],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={"account_id": str(account_id), "plan": plan},
+        )
+        return jsonify({"checkout_url": checkout_session.url})
+    except Exception as exc:
+        return jsonify({"error": f"Falha ao criar checkout Stripe: {exc}"}), 400
+
+
+@app.route("/webhook", methods=["POST"])
+def stripe_webhook():
+    if stripe is None or not STRIPE_WEBHOOK_SECRET:
+        # Retorna sucesso mesmo sem Stripe configurado
+        return jsonify({"received": True}), 200
+
+    payload = request.data
+    sig_header = request.headers.get("Stripe-Signature", "")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    data = event["data"]["object"]
+    db = get_db()
+
+    if event["type"] == "checkout.session.completed":
+        account_id = int(data["metadata"].get("account_id", 0))
+        stripe_subscription_id = data.get("subscription")
+        price_id = data["metadata"].get("plan")
+        if stripe_subscription_id and account_id:
+            current_period_end = datetime.utcfromtimestamp(data.get("current_period_end", datetime.utcnow().timestamp()))
+            db.execute(
+                "INSERT INTO subscriptions (account_id, stripe_subscription_id, stripe_price_id, status, current_period_end) VALUES (?, ?, ?, ?, ?)",
+                (account_id, stripe_subscription_id, price_id, "active", current_period_end.strftime("%Y-%m-%d %H:%M:%S")),
+            )
+            db.execute("UPDATE accounts SET plan = ?, status = ? WHERE id = ?", (price_id, "active", account_id))
+            db.commit()
+
+    return jsonify({"received": True})
 
 
 @app.route("/api/account/upgrade", methods=["POST"])

@@ -18,6 +18,7 @@
         <button class="nav-btn" data-page="items">📋 Inventário</button>
         <button class="nav-btn" data-page="historico">📜 Histórico</button>
         <button class="nav-btn" data-page="relatorios">📈 Relatórios</button>
+        <button class="nav-btn" data-page="equipe">👥 Equipe</button>
         <button class="nav-btn" data-page="configuracoes">⚙️ Configurações</button>
       </nav>
       <div class="sidebar-footer">
@@ -177,6 +178,43 @@
         </div>
 
         <div id="reportContent"></div>
+      </section>
+
+      <!-- Equipe e Cobrança -->
+      <section id="equipe-page" class="page">
+        <header class="page-header">
+          <h2>Equipe e Cobrança</h2>
+          <p>Convide membros, importe arquivos e gerencie sua assinatura.</p>
+        </header>
+
+        <div class="config-section">
+          <h3>Convidar membro</h3>
+          <div class="invite-form">
+            <input type="email" id="inviteEmail" placeholder="Email do convidado">
+            <select id="inviteRole">
+              <option value="member">Membro</option>
+              <option value="admin">Administrador</option>
+            </select>
+            <button id="sendInviteBtn" class="btn-primary">Enviar convite</button>
+          </div>
+          <div id="inviteMessage" class="plan-info" style="display:none"></div>
+          <div id="inviteList" class="invite-list"></div>
+        </div>
+
+        <div class="config-section">
+          <h3>Importar planilha Excel</h3>
+          <p>Use a planilha com colunas: name, quantity, description, location, min_quantity, category, sku.</p>
+          <input type="file" id="excelFile" accept=".xlsx,.xls">
+          <button id="importExcelBtn" class="btn-primary">Importar Excel</button>
+          <div id="excelResult" class="plan-info" style="display:none"></div>
+        </div>
+
+        <div class="config-section">
+          <h3>Assinatura</h3>
+          <p>Atualize para o plano PRO com pagamento recorrente via Stripe.</p>
+          <button id="checkoutBtn" class="btn-primary">Ir para pagamento</button>
+          <div id="checkoutInfo" class="plan-info" style="display:none"></div>
+        </div>
       </section>
 
       <!-- Configurações -->

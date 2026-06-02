@@ -126,6 +126,7 @@
         </select>
         <p style="margin:0; color:#6b7280; font-size:.9rem;">Plano gratuito: até 25 itens e 10 categorias. Plano Pro: ilimitado.</p>
         <input type="email" id="email" name="email" placeholder="Email (opcional)">
+        <input type="hidden" id="invite_token" name="invite_token" value="{{ invite_token }}">
         <input type="password" id="password" name="password" placeholder="Senha (mín. 6 caracteres)" required>
         <input type="password" id="passwordConfirm" name="password_confirm" placeholder="Confirme a senha" required>
         <button type="submit">Criar Conta</button>
@@ -137,6 +138,10 @@
     </div>
 
     <script>
+      const inviteTokenValue = document.getElementById("invite_token").value;
+      if (inviteTokenValue) {
+        document.getElementById("company").required = false;
+      }
       document.getElementById("registerForm").addEventListener("submit", async (e) => {
         e.preventDefault();
         const username = document.getElementById("username").value;
@@ -152,10 +157,11 @@
         successDiv.classList.remove("show");
 
         try {
-          const response = await fetch("/register", {
+          const inviteToken = document.getElementById("invite_token").value;
+        const response = await fetch("/register", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username, company, plan, email, password, password_confirm: passwordConfirm }),
+            body: JSON.stringify({ username, company, plan, email, password, password_confirm: passwordConfirm, invite_token: inviteToken }),
           });
 
           const data = await response.json();
