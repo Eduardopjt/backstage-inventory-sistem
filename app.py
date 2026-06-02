@@ -228,9 +228,9 @@ def init_db():
         """
     )
     db.execute(
-        """
+        f"""
         CREATE TABLE IF NOT EXISTS items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {serial_type},
             account_id INTEGER NOT NULL DEFAULT 1,
             user_id INTEGER NOT NULL,
             name TEXT NOT NULL,
@@ -240,16 +240,16 @@ def init_db():
             min_quantity INTEGER DEFAULT 0,
             category TEXT,
             sku TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_at {timestamp_type},
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
         )
         """
     )
     db.execute(
-        """
+        f"""
         CREATE TABLE IF NOT EXISTS movements (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {serial_type},
             item_id INTEGER NOT NULL,
             type TEXT NOT NULL,
             quantity INTEGER NOT NULL,
@@ -257,20 +257,20 @@ def init_db():
             supplier TEXT,
             unit_price REAL,
             destination TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            timestamp {timestamp_type},
             FOREIGN KEY(item_id) REFERENCES items(id) ON DELETE CASCADE
         )
         """
     )
     db.execute(
-        """
+        f"""
         CREATE TABLE IF NOT EXISTS categories (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id {serial_type},
             account_id INTEGER NOT NULL DEFAULT 1,
             user_id INTEGER NOT NULL,
             name TEXT NOT NULL,
             color TEXT DEFAULT '#2563eb',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            created_at {timestamp_type},
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
             FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE,
             UNIQUE(account_id, name)
