@@ -92,6 +92,21 @@ class DBConnection:
         except:
             return []
 
+    @property
+    def lastrowid(self):
+        """Retorna o ID da última linha inserida"""
+        if self.current_cursor is None:
+            return None
+        try:
+            if self.driver == "postgres":
+                # PostgreSQL não tem lastrowid, usar RETURNING
+                return self.current_cursor.lastrowid
+            else:
+                # SQLite
+                return self.current_cursor.lastrowid
+        except:
+            return None
+
     def commit(self):
         return self.conn.commit()
 
